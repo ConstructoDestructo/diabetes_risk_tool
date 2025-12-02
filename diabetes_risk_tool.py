@@ -49,20 +49,33 @@ st.markdown("""
     .risk-low {
         background-color: #d4edda;
         border: 2px solid #28a745;
+        color: #155724 !important;
+    }
+    .risk-low h1, .risk-low h2, .risk-low h3, .risk-low p {
+        color: #155724 !important;
     }
     .risk-moderate {
         background-color: #fff3cd;
         border: 2px solid #ffc107;
+        color: #856404 !important;
+    }
+    .risk-moderate h1, .risk-moderate h2, .risk-moderate h3, .risk-moderate p {
+        color: #856404 !important;
     }
     .risk-high {
         background-color: #f8d7da;
         border: 2px solid #dc3545;
+        color: #721c24 !important;
+    }
+    .risk-high h1, .risk-high h2, .risk-high h3, .risk-high p {
+        color: #721c24 !important;
     }
     .metric-card {
         background-color: #f8f9fa;
         padding: 1rem;
         border-radius: 5px;
         border-left: 4px solid #1f77b4;
+        color: #333 !important;
     }
     .disclaimer {
         background-color: #fff3cd;
@@ -70,6 +83,10 @@ st.markdown("""
         border-radius: 5px;
         border-left: 4px solid #ffc107;
         margin-top: 2rem;
+        color: #856404 !important;
+    }
+    .disclaimer h3, .disclaimer p, .disclaimer ul, .disclaimer li {
+        color: #856404 !important;
     }
 </style>
 """, unsafe_allow_html=True)
