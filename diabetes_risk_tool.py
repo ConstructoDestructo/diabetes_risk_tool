@@ -1,7 +1,9 @@
 """
 Type 2 Diabetes Risk Assessment Tool
-Built with NHANES 1999-2023 Data (130,000 patients)
-Random Forest Model: 96.56% AUC, 99.86% Precision
+Built with NHANES 1999-2023 Data (50,000+ patients)
+Logistic Regression Models:
+- Public Screening: 81.72% AUC (no labs)
+- Clinical Assessment: 97.38% AUC (with HbA1c & labs)
 """
 
 import streamlit as st
@@ -93,163 +95,275 @@ def get_bmi_category(bmi):
 
 def predict_diabetes_risk_basic(age, sex, bmi, waist, race, family_history, hypertension, physical_activity):
     """
-    Version 1: Basic risk prediction without lab values
-    Uses population medians for missing lab values
+    PUBLIC SCREENING VERSION - Logistic Regression Weights
+    Trained on 44,841 NHANES patients
+    Test AUC: 0.8172
+    NO LAB TESTS REQUIRED
     """
+    import numpy as np
     
-    # Risk factors scoring (based on medical literature)
-    risk_score = 0
+    log_odds = -2.967044
     factors = []
     
-    # Age scoring
+    # Age contribution
     if age >= 45:
-        age_risk = min((age - 45) * 0.8, 25)
-        risk_score += age_risk
-        if age >= 45:
-            factors.append(("Age", age_risk, f"{age} years"))
+        age_contrib = 1.694507 + (age - 45) * 0.025160
+        log_odds += age_contrib
+        if abs(age_contrib) > 0.01:
+            factors.append(("Age", age_contrib, f"{age} years"))
+    elif age >= 40:
+        age_contrib = 1.116910
+        log_odds += age_contrib
+        if abs(age_contrib) > 0.01:
+            factors.append(("Age", age_contrib, f"{age} years"))
     
-    # BMI scoring (exponential relationship)
-    if bmi >= 25:
-        bmi_risk = (bmi - 25) * 1.5
-        if bmi >= 30:
-            bmi_risk += (bmi - 30) * 2  # Additional penalty for obesity
-        risk_score += min(bmi_risk, 30)
-        factors.append(("BMI", min(bmi_risk, 30), f"{bmi:.1f} kg/m²"))
+    # BMI contribution - Obese
+    if bmi >= 30:
+        bmi_contrib = 0.920373 + (bmi - 30) * 0.067961
+        log_odds += bmi_contrib
+        factors.append(("BMI", bmi_contrib, f"{bmi:.1f} kg/m² (Obese)"))
+    elif bmi >= 25:
+        bmi_contrib = 0.223897 + (bmi - 25) * 0.086140
+        log_odds += bmi_contrib
+        if abs(bmi_contrib) > 0.01:
+            factors.append(("BMI", bmi_contrib, f"{bmi:.1f} kg/m² (Overweight)"))
     
-    # Waist circumference (central obesity)
+    # Waist circumference
     if waist > 0:
         if (sex == "Male" and waist > 40) or (sex == "Female" and waist > 35):
-            waist_risk = 12
-            risk_score += waist_risk
-            factors.append(("Waist Circumference", waist_risk, f"{waist:.1f} inches"))
+            waist_contrib = 0.236657
+            log_odds += waist_contrib
+            if abs(waist_contrib) > 0.01:
+                factors.append(("Waist", waist_contrib, f"{waist:.1f} inches (High)"))
+        elif (sex == "Male" and waist > 37) or (sex == "Female" and waist > 32):
+            waist_contrib = 0.035291
+            log_odds += waist_contrib
+            if abs(waist_contrib) > 0.01:
+                factors.append(("Waist", waist_contrib, f"{waist:.1f} inches (Elevated)"))
     
-    # Family history (strong genetic component)
+    # Family history
     if family_history == "Yes":
-        family_risk = 15
-        risk_score += family_risk
-        factors.append(("Family History", family_risk, "Positive"))
+        fh_contrib = -0.996535
+        log_odds += fh_contrib
+        factors.append(("Family History", fh_contrib, "Positive"))
     
     # Hypertension
     if hypertension == "Yes":
-        htn_risk = 10
-        risk_score += htn_risk
-        factors.append(("High Blood Pressure", htn_risk, "Positive"))
+        htn_contrib = 0.768665
+        log_odds += htn_contrib
+        factors.append(("Hypertension", htn_contrib, "Positive"))
     
-    # Physical activity (protective factor)
+    # Physical activity
     if physical_activity == "Sedentary":
-        activity_risk = 8
-        risk_score += activity_risk
-        factors.append(("Physical Activity", activity_risk, "Sedentary"))
+        activity_contrib = -0.146560
+        log_odds += activity_contrib
+        factors.append(("Physical Activity", activity_contrib, "Sedentary"))
+    elif physical_activity == "Light":
+        activity_contrib = 0.057300
+        log_odds += activity_contrib
+        if abs(activity_contrib) > 0.01:
+            factors.append(("Physical Activity", activity_contrib, "Light"))
     
-    # Race/ethnicity adjustments (based on epidemiological data)
-    race_risks = {
-        "Hispanic": 8,
-        "Non-Hispanic Black": 10,
-        "Non-Hispanic Asian": 6,
-        "Other/Mixed": 5
-    }
-    if race in race_risks:
-        race_risk = race_risks[race]
-        risk_score += race_risk
-        factors.append(("Race/Ethnicity", race_risk, race))
+    # Race/ethnicity
+    if race == "Hispanic":
+        race_contrib = 0.574476
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
+    elif race == "Non-Hispanic Black":
+        race_contrib = 0.367321
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
+    elif race == "Non-Hispanic Asian":
+        race_contrib = 0.931855
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
+    elif race == "Other/Mixed":
+        race_contrib = 0.429936
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
     
-    # Convert to probability (0-100%)
-    # Logistic transformation to keep between 0 and 100
-    risk_probability = 100 / (1 + np.exp(-0.08 * (risk_score - 40)))
+    # Convert to probability
+    risk_probability = 100 / (1 + np.exp(-log_odds))
     
-    return risk_probability, sorted(factors, key=lambda x: x[1], reverse=True)
+    # Sort factors
+    factors_sorted = sorted(factors, key=lambda x: abs(x[1]), reverse=True)
+    
+    return risk_probability, factors_sorted
 
 def predict_diabetes_risk_clinical(age, sex, bmi, waist, race, family_history, hypertension, 
                                    physical_activity, glucose, hba1c, triglycerides, hdl, systolic_bp):
     """
-    Version 2: Clinical risk prediction with lab values
-    Uses actual lab values for precise prediction
+    CLINICAL ASSESSMENT VERSION - Logistic Regression Weights
+    Trained on 42,605 NHANES patients with lab data
+    Test AUC: 0.9738
+    INCLUDES LAB TESTS: HbA1c, Glucose, Lipids
     """
+    import numpy as np
     
-    risk_score = 0
+    log_odds = -6.701756
     factors = []
     
-    # HbA1c (MOST IMPORTANT - 45% of importance in Random Forest)
-    if hba1c >= 6.5:
-        hba1c_risk = 50  # Diagnostic threshold
-        risk_score += hba1c_risk
-        factors.append(("HbA1c", hba1c_risk, f"{hba1c:.1f}% (Diabetes range)"))
-    elif hba1c >= 5.7:
-        hba1c_risk = (hba1c - 5.7) * 30  # Prediabetes range
-        risk_score += hba1c_risk
-        factors.append(("HbA1c", hba1c_risk, f"{hba1c:.1f}% (Prediabetes range)"))
-    elif hba1c > 5.4:
-        hba1c_risk = (hba1c - 5.4) * 10
-        risk_score += hba1c_risk
-        factors.append(("HbA1c", hba1c_risk, f"{hba1c:.1f}% (Elevated)"))
+    # ========================================================================
+    # HbA1c - MOST IMPORTANT PREDICTOR
+    # ========================================================================
+    if hba1c > 0:
+        # Continuous contribution
+        hba1c_contrib = hba1c * 1.075071
+        
+        # Categorical thresholds
+        if hba1c >= 6.5:
+            hba1c_contrib += 11.101285
+            log_odds += hba1c_contrib
+            factors.append(("HbA1c", hba1c_contrib, f"{hba1c:.1f}% (Diabetes)"))
+        elif hba1c >= 5.7:
+            hba1c_contrib += 0.785740
+            log_odds += hba1c_contrib
+            factors.append(("HbA1c", hba1c_contrib, f"{hba1c:.1f}% (Prediabetes)"))
+        else:
+            log_odds += hba1c_contrib
+            if abs(hba1c_contrib) > 0.1:
+                factors.append(("HbA1c", hba1c_contrib, f"{hba1c:.1f}%"))
     
-    # Fasting Glucose (SECOND MOST IMPORTANT - 28% importance)
-    if glucose >= 126:
-        glucose_risk = 45  # Diagnostic threshold
-        risk_score += glucose_risk
-        factors.append(("Fasting Glucose", glucose_risk, f"{glucose} mg/dL (Diabetes range)"))
-    elif glucose >= 100:
-        glucose_risk = (glucose - 100) * 1.5  # Prediabetes range
-        risk_score += glucose_risk
-        factors.append(("Fasting Glucose", glucose_risk, f"{glucose} mg/dL (Prediabetes range)"))
-    elif glucose > 90:
-        glucose_risk = (glucose - 90) * 0.5
-        risk_score += glucose_risk
-        factors.append(("Fasting Glucose", glucose_risk, f"{glucose} mg/dL (Elevated)"))
+    # ========================================================================
+    # Glucose
+    # ========================================================================
+    if glucose > 0:
+        glucose_contrib = glucose * -0.014690
+        
+        if glucose >= 126:
+            glucose_contrib += 9.805472
+            log_odds += glucose_contrib
+            factors.append(("Glucose", glucose_contrib, f"{glucose:.0f} mg/dL (Diabetes)"))
+        elif glucose >= 100:
+            glucose_contrib += 0.130499
+            log_odds += glucose_contrib
+            factors.append(("Glucose", glucose_contrib, f"{glucose:.0f} mg/dL (Elevated)"))
+        else:
+            log_odds += glucose_contrib
+            if abs(glucose_contrib) > 0.1:
+                factors.append(("Glucose", glucose_contrib, f"{glucose:.0f} mg/dL"))
     
-    # BMI (12% importance)
-    if bmi >= 30:
-        bmi_risk = (bmi - 30) * 1.2 + 10
-        risk_score += min(bmi_risk, 20)
-        factors.append(("BMI", min(bmi_risk, 20), f"{bmi:.1f} kg/m² (Obese)"))
-    elif bmi >= 25:
-        bmi_risk = (bmi - 25) * 0.8
-        risk_score += bmi_risk
-        factors.append(("BMI", bmi_risk, f"{bmi:.1f} kg/m² (Overweight)"))
+    # ========================================================================
+    # Lipids
+    # ========================================================================
+    if hdl > 0:
+        hdl_contrib = hdl * -0.009881
+        if (sex == "Male" and hdl < 40) or (sex == "Female" and hdl < 50):
+            hdl_contrib += 0.060562
+            log_odds += hdl_contrib
+            factors.append(("HDL", hdl_contrib, f"{hdl:.0f} mg/dL (Low)"))
+        else:
+            log_odds += hdl_contrib
+            if abs(hdl_contrib) > 0.1:
+                factors.append(("HDL", hdl_contrib, f"{hdl:.0f} mg/dL"))
     
-    # Triglycerides (8% importance)
-    if triglycerides >= 150:
-        trig_risk = (triglycerides - 150) * 0.03
-        risk_score += min(trig_risk, 15)
-        factors.append(("Triglycerides", min(trig_risk, 15), f"{triglycerides} mg/dL (High)"))
+    if triglycerides > 0:
+        trig_contrib = triglycerides * 0.000520
+        if triglycerides >= 150:
+            trig_contrib += 0.020562
+            log_odds += trig_contrib
+            factors.append(("Triglycerides", trig_contrib, f"{triglycerides:.0f} mg/dL (High)"))
+        else:
+            log_odds += trig_contrib
+            if abs(trig_contrib) > 0.1:
+                factors.append(("Triglycerides", trig_contrib, f"{triglycerides:.0f} mg/dL"))
     
-    # HDL (inverse relationship - low HDL increases risk)
-    if sex == "Male" and hdl < 40:
-        hdl_risk = (40 - hdl) * 0.3
-        risk_score += hdl_risk
-        factors.append(("HDL Cholesterol", hdl_risk, f"{hdl} mg/dL (Low)"))
-    elif sex == "Female" and hdl < 50:
-        hdl_risk = (50 - hdl) * 0.3
-        risk_score += hdl_risk
-        factors.append(("HDL Cholesterol", hdl_risk, f"{hdl} mg/dL (Low)"))
+    # ========================================================================
+    # BASIC FEATURES (same as public screening)
+    # ========================================================================
     
-    # Blood Pressure
-    if systolic_bp >= 140:
-        bp_risk = 8
-        risk_score += bp_risk
-        factors.append(("Blood Pressure", bp_risk, f"{systolic_bp} mmHg (High)"))
-    elif systolic_bp >= 130:
-        bp_risk = 4
-        risk_score += bp_risk
-        factors.append(("Blood Pressure", bp_risk, f"{systolic_bp} mmHg (Elevated)"))
-    
-    # Age (4% importance)
+    # Age
     if age >= 45:
-        age_risk = (age - 45) * 0.3
-        risk_score += min(age_risk, 10)
-        factors.append(("Age", min(age_risk, 10), f"{age} years"))
+        age_contrib = 0.827839 + (age - 45) * 0.011897
+        log_odds += age_contrib
+        if abs(age_contrib) > 0.01:
+            factors.append(("Age", age_contrib, f"{age} years"))
+    elif age >= 40:
+        age_contrib = 0.378700
+        log_odds += age_contrib
+        if abs(age_contrib) > 0.01:
+            factors.append(("Age", age_contrib, f"{age} years"))
+    
+    # BMI - Obese
+    if bmi >= 30:
+        bmi_contrib = 0.693186 + (bmi - 30) * 0.047991
+        log_odds += bmi_contrib
+        factors.append(("BMI", bmi_contrib, f"{bmi:.1f} kg/m² (Obese)"))
+    elif bmi >= 25:
+        bmi_contrib = 0.063613 + (bmi - 25) * 0.119280
+        log_odds += bmi_contrib
+        if abs(bmi_contrib) > 0.01:
+            factors.append(("BMI", bmi_contrib, f"{bmi:.1f} kg/m² (Overweight)"))
+    
+    # Waist
+    if waist > 0:
+        if (sex == "Male" and waist > 40) or (sex == "Female" and waist > 35):
+            waist_contrib = 0.092842
+            log_odds += waist_contrib
+            if abs(waist_contrib) > 0.01:
+                factors.append(("Waist", waist_contrib, f"{waist:.1f} inches (High)"))
+        elif (sex == "Male" and waist > 37) or (sex == "Female" and waist > 32):
+            waist_contrib = -0.030688
+            log_odds += waist_contrib
+            if abs(waist_contrib) > 0.01:
+                factors.append(("Waist", waist_contrib, f"{waist:.1f} inches (Elevated)"))
     
     # Family history
     if family_history == "Yes":
-        family_risk = 10
-        risk_score += family_risk
-        factors.append(("Family History", family_risk, "Positive"))
+        fh_contrib = -4.307152
+        log_odds += fh_contrib
+        factors.append(("Family History", fh_contrib, "Positive"))
     
-    # Convert to probability with clinical precision
-    # More aggressive logistic transformation for clinical values
-    risk_probability = 100 / (1 + np.exp(-0.09 * (risk_score - 50)))
+    # Hypertension
+    if hypertension == "Yes":
+        htn_contrib = 0.950919
+        log_odds += htn_contrib
+        factors.append(("Hypertension", htn_contrib, "Positive"))
     
-    return risk_probability, sorted(factors, key=lambda x: x[1], reverse=True)
+    # Physical activity
+    if physical_activity == "Sedentary":
+        activity_contrib = -0.125318
+        log_odds += activity_contrib
+        factors.append(("Physical Activity", activity_contrib, "Sedentary"))
+    elif physical_activity == "Light":
+        activity_contrib = 0.248586
+        log_odds += activity_contrib
+        if abs(activity_contrib) > 0.01:
+            factors.append(("Physical Activity", activity_contrib, "Light"))
+    
+    # Race/ethnicity
+    if race == "Hispanic":
+        race_contrib = 0.306734
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
+    elif race == "Non-Hispanic Black":
+        race_contrib = 0.214168
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
+    elif race == "Non-Hispanic Asian":
+        race_contrib = 0.493974
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
+    elif race == "Other/Mixed":
+        race_contrib = 0.443297
+        log_odds += race_contrib
+        if abs(race_contrib) > 0.01:
+            factors.append(("Race/Ethnicity", race_contrib, race))
+    
+    # Convert to probability
+    risk_probability = 100 / (1 + np.exp(-log_odds))
+    
+    # Sort factors
+    factors_sorted = sorted(factors, key=lambda x: abs(x[1]), reverse=True)
+    
+    return risk_probability, factors_sorted
 
 def get_risk_category(risk_probability, has_labs=False):
     """Categorize risk level"""
@@ -509,12 +623,12 @@ def main():
                     age, sex, bmi, waist, race, family_history, hypertension,
                     physical_activity, glucose, hba1c, triglycerides, hdl, systolic_bp
                 )
-                confidence = "Very High (99.86% precision)"
+                confidence = "Very High (97.4% AUC)"
             else:
                 risk_prob, factors = predict_diabetes_risk_basic(
                     age, sex, bmi, waist, race, family_history, hypertension, physical_activity
                 )
-                confidence = "Moderate (screening tool)"
+                confidence = "High (81.7% AUC)"
             
             risk_level, risk_emoji, risk_class, risk_color = get_risk_category(risk_prob, is_clinical)
             
@@ -672,7 +786,8 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #666; font-size: 0.9rem;">
-        <p><strong>Model Details:</strong> Random Forest trained on NHANES 1999-2023 data (n=130,000) | AUC: 96.56% | Precision: 99.86%</p>
+        <p><strong>Model Details:</strong> Logistic Regression trained on NHANES 1999-2023 data (n=50,000+)</p>
+        <p>Public Screening: 81.7% AUC (no labs) | Clinical Assessment: 97.4% AUC (with HbA1c)</p>
         <p><strong>For academic purposes only</strong> | Developed as part of biomedical engineering research project</p>
     </div>
     """, unsafe_allow_html=True)
