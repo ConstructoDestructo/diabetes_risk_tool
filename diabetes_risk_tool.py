@@ -496,7 +496,7 @@ def main():
         "- AUC: 96.56%\n"
         "- Precision: 99.86%\n"
         "- Algorithm: Random Forest\n"
-        "- Training Data: 130,000 patients\n\n"
+        "- Training Data: 44,841 patients\n\n"
         "**Purpose:** Individual-level risk prediction for screening and clinical decision support."
     )
     
